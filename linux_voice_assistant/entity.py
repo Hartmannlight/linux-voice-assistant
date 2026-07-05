@@ -89,7 +89,7 @@ class MediaPlayerEntity(ESPHomeEntity):
         self.announce_player = announce_player
         self.sendspin_bridge: Optional["SendspinBridge"] = None
         self._on_volume_changed = on_volume_changed
-        self.apply_volume_from_state(initial_volume)         
+        self.apply_volume_from_state(initial_volume)
         self._log = logging.getLogger(f"{self.__class__.__name__}[{self.key}]")
 
     def set_sendspin_bridge(self, bridge: "SendspinBridge") -> None:
@@ -156,33 +156,26 @@ class MediaPlayerEntity(ESPHomeEntity):
                     url,
                     done_callback=lambda: call_all(
                         self._resume_sendspin,
-                        lambda: self._safe_send_state(MediaPlayerState.PAUSED),
+                        lambda: self.send_state(MediaPlayerState.PAUSED),
                         done_callback,
                     ),
-                    done_callback=lambda: call_all(self.music_player.resume, done_callback),
                 )
             else:
                 # Nothing was playing, just announce then go idle
                 self.announce_player.play(
                     url,
                     done_callback=lambda: call_all(
-                        lambda: self._safe_send_state(MediaPlayerState.IDLE),
-                        self.server.send_messages([self._update_state(MediaPlayerState.IDLE)]),
+                        lambda: self.send_state(MediaPlayerState.IDLE),
                         done_callback,
                     ),
                 )
         else:
+            self._log.debug("PLAY: announcement false")
             # Music playback
             self.music_player.play(
                 url,
                 done_callback=lambda: call_all(
-                    lambda: self._safe_send_state(MediaPlayerState.IDLE),
-            self._log.debug("PLAY: announcement false")
-            # Music
-            self.music_player.play(
-                url,
-                done_callback=lambda: call_all(
-                    self.server.send_messages([self._update_state(MediaPlayerState.IDLE)]),
+                    lambda: self.send_state(MediaPlayerState.IDLE),
                     done_callback,
                 ),
             )
@@ -281,7 +274,7 @@ class MediaPlayerEntity(ESPHomeEntity):
         self.state = new_state
         return self._get_state_message()
 
-    def _safe_send_state(self, state: MediaPlayerState) -> None:
+    def send_state(self, state: MediaPlayerState) -> None:
         """Send state update, ignoring connection errors."""
         try:
             self.server.send_messages([self._update_state(state)])

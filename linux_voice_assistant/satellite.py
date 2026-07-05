@@ -955,18 +955,6 @@ class VoiceSatelliteProtocol(APIServer):
         _LOGGER.debug("TTS response finished")
 
     # ------------------------------------------------------------------
-    # Ducking
-    # ------------------------------------------------------------------
-
-    def duck(self) -> None:
-        _LOGGER.debug("Ducking music")
-        self.state.music_player.duck()
-
-    def unduck(self) -> None:
-        _LOGGER.debug("Unducking music")
-        self.state.music_player.unduck()
-
-    # ------------------------------------------------------------------
     # Timer finished loop
     # ------------------------------------------------------------------
 

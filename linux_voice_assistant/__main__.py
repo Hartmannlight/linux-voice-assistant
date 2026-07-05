@@ -244,6 +244,7 @@ async def main() -> None:
         type=float,
         default=0.0,
         help="Static playback delay in milliseconds for SendSpin sync adjustment",
+    )
     parser.add_argument(
         "--output-only",
         action="store_true",
@@ -260,15 +261,8 @@ async def main() -> None:
 
     if args.list_output_devices:
         from .audio_device_util import list_output_devices
+
         list_output_devices()
-        from mpv import MPV
-
-        player = MPV()
-        print("Audio output devices:")
-        print("=" * 14)
-
-        for speaker in player.audio_device_list:  # type: ignore
-            print(speaker["name"] + ":", speaker["description"])
         return
 
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
@@ -474,6 +468,26 @@ async def main() -> None:
         _LOGGER.critical("Program will exit immediately - fix the error above first!")
         sys.exit(1)
 
+    # Initialize SendSpin after protocol validation has created the shared
+    # media-player entity, but before accepting client connections.
+    if args.sendspin_url:
+        from .audio_device_util import find_sounddevice_by_name
+        from .sendspin_bridge import SendspinBridge
+
+        sounddevice_index = find_sounddevice_by_name(args.audio_output_device)
+        if state.media_player_entity is None:
+            raise RuntimeError("VoiceSatelliteProtocol did not initialize the media player")
+
+        state.sendspin_bridge = SendspinBridge(
+            media_player_entity=state.media_player_entity,
+            client_id=args.sendspin_client_id,
+            client_name=args.name,
+            static_delay_ms=args.sendspin_static_delay_ms,
+            audio_device=sounddevice_index,
+        )
+        state.media_player_entity.set_sendspin_bridge(state.sendspin_bridge)
+        await state.sendspin_bridge.start(server_url=args.sendspin_url)
+
     while attempt <= max_attempts:
         try:
             server = await loop.create_server(
@@ -516,32 +530,6 @@ async def main() -> None:
         daemon=True,
     )
     process_audio_thread.start()
-
-    vsp = VoiceSatelliteProtocol(state)
-    # Initialize SendSpin bridge if URL provided
-    if args.sendspin_url:
-        from .audio_device_util import find_sounddevice_by_name
-        from .sendspin_bridge import SendspinBridge
-
-        # Resolve MPV device name to sounddevice index
-        sounddevice_index = find_sounddevice_by_name(args.audio_output_device)
-
-        vsp.state.sendspin_bridge = SendspinBridge(
-            media_player_entity=vsp.state.media_player_entity,
-            client_id=args.sendspin_client_id,
-            client_name=args.name,
-            static_delay_ms=args.sendspin_static_delay_ms,
-            audio_device=sounddevice_index,
-        )
-        # Wire up the bridge to the entity for coordinated playback
-        vsp.state.media_player_entity.set_sendspin_bridge(state.sendspin_bridge)
-        await vsp.state.sendspin_bridge.start(server_url=args.sendspin_url)
-
-    loop = asyncio.get_running_loop()
-    server = await loop.create_server(
-        lambda: vsp, host=args.host, port=args.port
-        lambda: VoiceSatelliteProtocol(state), host=host_ip_address, port=args.port
-    )
 
     # Auto discovery (zeroconf, mDNS)
     discovery = HomeAssistantZeroconf(

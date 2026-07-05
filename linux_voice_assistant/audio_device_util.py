@@ -23,8 +23,7 @@ def find_sounddevice_by_name(mpv_device_name: Optional[str]) -> Optional[int]:
     devices = sd.query_devices()
 
     # Try exact match first
-    for i in range(len(devices)):
-        dev = devices[i]
+    for i, dev in enumerate(devices):
         if dev["max_output_channels"] > 0:
             if dev["name"] == mpv_device_name:
                 _LOGGER.info(
@@ -42,8 +41,7 @@ def find_sounddevice_by_name(mpv_device_name: Optional[str]) -> Optional[int]:
     best_match = None
     best_match_len = 0
 
-    for i in range(len(devices)):
-        dev = devices[i]
+    for i, dev in enumerate(devices):
         if dev["max_output_channels"] > 0:
             sd_name = dev["name"]
             # Check if sounddevice name appears in MPV name
@@ -62,8 +60,7 @@ def find_sounddevice_by_name(mpv_device_name: Optional[str]) -> Optional[int]:
         return best_match
 
     # Try reverse: MPV name contained in sounddevice name
-    for i in range(len(devices)):
-        dev = devices[i]
+    for i, dev in enumerate(devices):
         if dev["max_output_channels"] > 0:
             sd_name = dev["name"]
             if mpv_device_name in sd_name:
@@ -77,7 +74,7 @@ def find_sounddevice_by_name(mpv_device_name: Optional[str]) -> Optional[int]:
 
     # No match found
     _LOGGER.warning(
-        "Could not find sounddevice match for MPV device '%s'. " "Using default sounddevice. Run with --list-output-devices to see available devices.",
+        "Could not find sounddevice match for MPV device '%s'. Using default sounddevice. Run with --list-output-devices to see available devices.",
         mpv_device_name,
     )
     return None
@@ -102,12 +99,10 @@ def list_output_devices() -> None:
     devices = sd.query_devices()
     default_output = sd.default.device[1]
 
-    for i in range(len(devices)):
-        dev = devices[i]
+    for i, dev in enumerate(devices):
         if dev["max_output_channels"] > 0:
             default_marker = " (default)" if i == default_output else ""
             print(f"  [{i}] {dev['name']}{default_marker}\n" f"      Channels: {dev['max_output_channels']}, " f"Sample rate: {dev['default_samplerate']} Hz")
-            )
 
     print()
     print("Note: Use --audio-output-device with an MPV device name.")

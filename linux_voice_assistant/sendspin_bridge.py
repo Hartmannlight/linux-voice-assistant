@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import collections
 import logging
-import math
 import socket
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -252,6 +251,10 @@ class AudioPlayer:
         self._closed = True
         self._close_stream()
 
+    def close_stream(self) -> None:
+        """Close the underlying audio stream immediately."""
+        self._close_stream()
+
     def clear(self) -> None:
         """Drop all queued audio chunks and reset state."""
         self._clear_requested = False
@@ -351,9 +354,9 @@ class AudioPlayer:
                     bytes_written += frames_bytes
                 else:
                     # Slow path: sync corrections active
-                    if self._frames_until_next_insert <= 0 and insert_every_n > 0:
+                    if self._frames_until_next_insert <= 0 < insert_every_n:
                         self._frames_until_next_insert = insert_every_n
-                    if self._frames_until_next_drop <= 0 and drop_every_n > 0:
+                    if self._frames_until_next_drop <= 0 < drop_every_n:
                         self._frames_until_next_drop = drop_every_n
 
                     if not self._last_output_frame:
@@ -380,7 +383,7 @@ class AudioPlayer:
 
                         # Handle correction event
                         if frames_remaining > 0:
-                            if drop_counter <= 0 and drop_every_n > 0:
+                            if drop_counter <= 0 < drop_every_n:
                                 # Drop frame: read extra frame to advance cursor faster
                                 _ = self._read_one_input_frame()
                                 _ = self._read_one_input_frame()
@@ -390,7 +393,7 @@ class AudioPlayer:
                                 bytes_written += frame_size
                                 frames_remaining -= 1
                                 insert_counter -= 1
-                            elif insert_counter <= 0 and insert_every_n > 0:
+                            elif insert_counter <= 0 < insert_every_n:
                                 # Insert frame: output duplicate without reading
                                 insert_counter = insert_every_n
                                 self._frames_inserted_since_log += 1
@@ -772,7 +775,7 @@ class AudioPlayer:
                 playback_speed_percent = 100.0
 
             _LOGGER.debug(
-                "Sync error: %.1f ms, buffer: %.2f s, speed: %.2f%%, " "inserted: %d, dropped: %d",
+                "Sync error: %.1f ms, buffer: %.2f s, speed: %.2f%%, inserted: %d, dropped: %d",
                 self._sync_error_filtered_us / 1000.0,
                 self._queued_duration_us / self._MICROSECONDS_PER_SECOND,
                 playback_speed_percent,
@@ -991,6 +994,17 @@ class SendspinBridge:
         """Set callback to be called when SendSpin starts playing."""
         self._on_sendspin_start = callback
 
+    @staticmethod
+    def _create_player_state_task(client: SendspinClient, volume: int, muted: bool) -> None:
+        """Schedule a player-state update from the event-loop thread."""
+        asyncio.create_task(
+            client.send_player_state(
+                state=PlayerStateType.SYNCHRONIZED,
+                volume=volume,
+                muted=muted,
+            )
+        )
+
     def set_volume(self, volume: int, muted: bool = False) -> None:
         """Set volume (called from MediaPlayerEntity when HA changes volume)."""
         self._volume = max(0, min(100, volume))
@@ -1000,13 +1014,10 @@ class SendspinBridge:
         # Report volume to SendSpin server (same 0-100 scale, no conversion)
         if self._client and self._client.connected:
             asyncio.get_event_loop().call_soon(
-                lambda v=self._volume: asyncio.create_task(
-                    self._client.send_player_state(
-                        state=PlayerStateType.SYNCHRONIZED,
-                        volume=v,
-                        muted=self._muted,
-                    )
-                )
+                self._create_player_state_task,
+                self._client,
+                self._volume,
+                self._muted,
             )
 
     def duck(self) -> None:
@@ -1064,13 +1075,10 @@ class SendspinBridge:
             # SendSpin protocol doesn't have PAUSED - it uses SYNCHRONIZED/ERROR only
             if self._client and self._client.connected:
                 asyncio.get_event_loop().call_soon(
-                    lambda: asyncio.create_task(
-                        self._client.send_player_state(
-                            state=PlayerStateType.SYNCHRONIZED,
-                            volume=self._volume,
-                            muted=self._muted,
-                        )
-                    )
+                    self._create_player_state_task,
+                    self._client,
+                    self._volume,
+                    self._muted,
                 )
 
     async def start(self, server_url: str | None = None) -> None:
@@ -1144,13 +1152,7 @@ class SendspinBridge:
         if self._player:
             try:
                 # Close the stream immediately to release audio device
-                if self._player._stream:
-                    try:
-                        self._player._stream.stop()
-                        self._player._stream.close()
-                    except Exception:
-                        _LOGGER.debug("Error closing audio stream", exc_info=True)
-                    self._player._stream = None
+                self._player.close_stream()
 
                 # Clear buffer
                 self._player.clear()
@@ -1222,7 +1224,7 @@ class SendspinBridge:
 
         # Update MediaPlayerEntity state to idle
         if self.media_player:
-            self.media_player.server.send_messages([self.media_player._update_state(MediaPlayerState.IDLE)])
+            self.media_player.send_state(MediaPlayerState.IDLE)
 
     def _on_server_command(self, payload: ServerCommandPayload) -> None:
         """Handle volume/mute commands from SendSpin server."""
@@ -1240,7 +1242,7 @@ class SendspinBridge:
                 self.media_player.volume = self._volume / 100.0
                 self.media_player.music_player.set_volume(self._volume)
                 self.media_player.announce_player.set_volume(self._volume)
-                self.media_player.server.send_messages([self.media_player._update_state(self.media_player.state)])
+                self.media_player.send_state(self.media_player.state)
 
         elif player_cmd.command == PlayerCommand.MUTE and player_cmd.mute is not None:
             self._muted = player_cmd.mute
@@ -1248,18 +1250,15 @@ class SendspinBridge:
             # Sync with MediaPlayerEntity
             if self.media_player:
                 self.media_player.muted = self._muted
-                self.media_player.server.send_messages([self.media_player._update_state(self.media_player.state)])
+                self.media_player.send_state(self.media_player.state)
             _LOGGER.info("SendSpin server %s player", "muted" if player_cmd.mute else "unmuted")
 
         # Send state update back to server (same 0-100 scale, no conversion)
         asyncio.get_event_loop().call_soon(
-            lambda v=self._volume: asyncio.create_task(
-                self._client.send_player_state(
-                    state=PlayerStateType.SYNCHRONIZED,
-                    volume=v,
-                    muted=self._muted,
-                )
-            )
+            self._create_player_state_task,
+            self._client,
+            self._volume,
+            self._muted,
         )
 
     def _on_audio_chunk(
