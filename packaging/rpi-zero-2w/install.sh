@@ -35,6 +35,11 @@ $SUDO apt-get install --yes --no-install-recommends \
 
 chmod +x run.sh
 
+PY_SITE="$(pwd)/python/lib/python3.13/site-packages"
+ln -sfn "$(pwd)/app/wakewords" "$PY_SITE/wakewords"
+ln -sfn "$(pwd)/app/sounds" "$PY_SITE/sounds"
+mkdir -p "$PY_SITE/local"
+
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user enable --now pipewire.service pipewire-pulse.service wireplumber.service >/dev/null 2>&1 || true
 fi
