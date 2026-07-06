@@ -1,0 +1,33 @@
+FROM --platform=$TARGETPLATFORM python:3.13-slim-bookworm AS builder
+
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /opt/linux-voice-assistant/app
+
+COPY pyproject.toml setup.cfg README.md LICENSE.md version.txt version_githash.txt ./
+COPY script/ ./script/
+COPY linux_voice_assistant/ ./linux_voice_assistant/
+COPY sounds/ ./sounds/
+COPY wakewords/ ./wakewords/
+COPY packaging/rpi-zero-2w/install.sh ../install.sh
+COPY packaging/rpi-zero-2w/run.sh ../run.sh
+COPY packaging/rpi-zero-2w/README.md ../README.md
+
+RUN sed -i 's/\r$//' script/setup script/run ../install.sh ../run.sh && \
+    python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install .
+
+RUN mkdir -p /bundle/linux-voice-assistant/python /bundle/linux-voice-assistant/app && \
+    cp -a /usr/local/. /bundle/linux-voice-assistant/python/ && \
+    cp -a /opt/linux-voice-assistant/app/sounds /bundle/linux-voice-assistant/app/sounds && \
+    cp -a /opt/linux-voice-assistant/app/wakewords /bundle/linux-voice-assistant/app/wakewords && \
+    cp -a /opt/linux-voice-assistant/install.sh /bundle/linux-voice-assistant/install.sh && \
+    cp -a /opt/linux-voice-assistant/run.sh /bundle/linux-voice-assistant/run.sh && \
+    cp -a /opt/linux-voice-assistant/README.md /bundle/linux-voice-assistant/README.md && \
+    chmod +x /bundle/linux-voice-assistant/install.sh /bundle/linux-voice-assistant/run.sh && \
+    mkdir -p /out && \
+    tar -czf /out/linux-voice-assistant-sendspin-arm64-portable.tar.gz -C /bundle linux-voice-assistant
+
+FROM scratch AS export
+
+COPY --from=builder /out/ /

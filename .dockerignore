@@ -2,7 +2,11 @@
 
 !/pyproject.toml
 !/setup.cfg
+!/README.md
+!/LICENSE.md
 !/script/*
+!/packaging/*
+!/packaging/rpi-zero-2w/*
 !/docker-entrypoint.sh
 !/linux_voice_assistant/*
 !/sounds/*
